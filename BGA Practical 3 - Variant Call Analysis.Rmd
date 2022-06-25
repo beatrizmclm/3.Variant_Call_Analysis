@@ -1,0 +1,327 @@
+---
+title: "Variant Call Analysis"
+author: "Beatriz Manso"
+date: '2022-03-31'
+output: 
+  distill::distill_article:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The process of variant calling consists of finding variants that may be related to a particular population or trait. VCFs are standard formats for displaying sequence variation, such as SNPs, indels, and structural variants.
+
+Variant call format (VCF) Header line:
+
+| #CHROM         | Chromosome                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+|-------------------|-----------------------------------------------------|
+| POS            | Co-ordinate - The start coordinate of the variant. the genome coordinate of the first base in the variant. Within a chromosome, VCF records are sorted in order of increasing position.                                                                                                                                                                                                                                                                                 |
+| ID             | Identifier: a semicolon-separated list of marker identifiers.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| REF            | Reference allele - The reference allele is whatever is found in the reference genome and is expressed as a sequence of one or more A/C/G/T nucleotides (e.g. "A" or "AAC")                                                                                                                                                                                                                                                                                              |
+| ALT            | Alternative allele - The alternative allele is the allele found in the sample you are studying and is expressed as a sequence of one or more A/C/G/T nucleotides (e.g. "A" or AAC"). If there is more than one alternate alleles, the field should be a comma-separated list of alternate alleles.                                                                                                                                                                      |
+| QUAL           | Alternative allele - The alternative allele is the allele found in the sample you are studying and is expressed as a sequence of one or more A/C/G/T nucleotides (e.g. "A" or "AAC"). If there is more than one alternate alleles, the field should be a comma-separated list of alternate alleles.                                                                                                                                                                     |
+| FILTER         | Pass/fail - If it passed quality filters. Either "PASS" or a semicolon-separated list of failed quality control filters.                                                                                                                                                                                                                                                                                                                                                |
+| INFO           | Further information - Allows you to provide further information on the variants. Keys in the INFO field can be defined in header lines above the table.                                                                                                                                                                                                                                                                                                                 |
+| FORMAT         | Information about the following columns - The GT in the FORMAT column tells us to expect genotypes in the following columns.                                                                                                                                                                                                                                                                                                                                            |
+| Other/optional | Individual identifier (optional) - The previous column told us to expect to see genotypes here. The genotype is in the form 0\|1, where 0 indicates the reference allele and 1 indicates the alternative allele, i.e it is heterozygous. The vertical pipe \| indicates that the genotype is phased, and is used to indicate which chromosome the alleles are on. If this is a slash /rather than a vertical pipe, it means we don't know which chromosome they are on. |
+
+# Methods
+
+Files needed: AOC1.bam, chr7.fa, SRR11498039.vcf
+
+Using the Ubuntu terminal we can convert BAM files into VCF files:
+
+1.  Install the required packages:
+
+```{bash eval=FALSE}
+conda conda install -c bioconda Samtools
+
+conda install -c bioconda freebayes
+
+conda install -c bioconda bcftools
+```
+
+
+2.  Run comand to convert BAM into VCF
+
+    -   Using freebayes, run: 
+
+```{bash eval=FALSE}
+freebayes -f chr7.fa AOC1.bam >AOC1.vcf
+```
+
+    -   Using Bcftools, run: 
+
+```{bash eval=FALSE}
+bcftools mpileup -Ob -o AOC1_BCFtools.vcf -f chr7.fa AOC1.bam
+```
+
+## Part 1 - Extracting Variants from a BAM file into VCF format and Analysing using Ensembl VEP and the NCBI Genome browser
+
+### 1. Set working directory
+
+```{r eval=FALSE}
+setwd("C:/Users/manso/OneDrive - University of West London/MSc Bioinformatics - UWL/6.BGA - Bioinformatics and Genome Analysis/week 3 - DNA-Seq - Detecting variants in sequencing data/PRACTICAL")
+getwd()
+```
+
+### 2. Install packages and load libraries
+
+```{r eval=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE)) 
+  install.packages("BiocManager)
+BiocManager::install("VariantAnnotation")
+BiocManager::install("Rsamtools")
+
+install.packages("vcfR")
+```
+
+```{r}
+library("VariantAnnotation")
+library("Rsubread")
+library("Rsamtools")
+library("vcfR")
+library("R.filesets")
+```
+
+### 3. Store the file path of the BAM file and Chr7 reference FASTA file as string objects in R:
+
+```{r}
+BAM1 <- "AOC1.bam"
+refGenomeFile = "chr7.fa"
+```
+
+### 4. Create a .bai index of the BAM file in your working directory:
+
+```{r}
+Bamindex <- indexBam(BAM1)
+```
+
+### 4. Call the variants in the BAM file into VCF format and write it to a .VCF file in the working directory
+
+```{r}
+exactSNP(BAM1, isBAM = TRUE,  refGenomeFile, SNPAnnotationFile = NULL, outputFile = paste0(BAM1, '.VCF'))
+```
+
+### 5. Read the newly generated VCF file into RStudio and check the header
+
+```{r}
+fl <- "AOC1.bam.VCF"
+VCF1 <- readVcf(fl, refGenomeFile)
+header(VCF1)
+
+```
+
+### 6. Compress the VCF file using bgzip and then create a VCF file index.
+
+```{r}
+AOCzip <- bgzip(fl)
+
+indexTabix(AOCzip, format = "vcf")
+
+```
+
+This file "AOC1.bam.VCF.bgz" can now be uploaded to Emsemble VEP or to Genome Data Viewer (Options \> Upload) to compare our findings to those from the VEP and see if we discovered new variants.
+
+## Part 2 - Annotating and filtering genetic variants using the VariantAnnotation package
+
+### 1. Download reference genome with download.file function
+
+```{r}
+#Specify URL where file is stored
+url <- 'https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/GCA_000001405.28_GRCh38.p13_genomic.fna.gz'
+
+#Specify the name you want to give to the downloaded file 
+destfile <- 'output_ref'
+
+#Apply download.file function only if the file is not downloaded yet:
+if( ! file.exists('output_ref') ) {
+  hg38 <- getFile()
+  } else { 
+  hg38 <- 'download.file(url, destfile)'
+}
+```
+
+The reference genome is downloaded to the working directory and its name is "output_ref".
+
+### 2. Read the VCF file and reference genome with readvcf function
+
+```{r}
+# Set your vcf file as an object:
+srr <-'SRR11498039.vcf'
+
+#Set the reference genome as an object
+hg38 <- 'output_ref'
+
+#Use readvcr() function to read your vcr file object and the reference genome file object together. Data are parsed into a VCF object with readVcf.
+srr_vcf <- readVcf(srr, hg38)
+
+
+#View VCF file
+srr_vcf
+
+```
+
+This is a vcf class with a dimension (dim) of 550924 variants in 1 sample. - RwRanges(vcf) shows the GRanges with 5 metadata columns as: paramRangeID, REF, ALT, QUAL, FILTER - The info(vcf) slot shows the \# of data frames (DFrame) -- in this case 17 columns including: INDEL, IDV, IMF, DP, VDB, RPB, MQB, BQB, MQSB, SGB, MQ0F - The "geno" field shows the number of variables, which in this case are 2 variables: GT and PL
+
+### 3. Examine header information
+
+```{r}
+#Header information can be extracted from the VCF with header().
+header(srr_vcf)
+```
+
+There is only one sample in this vcf file, 5 fields of meta information, 17 info fields and 2 geno fields.
+
+Data can be further extracted using the named accessors:
+
+```{r}
+samples(header(srr_vcf))
+```
+
+There is 1 sample with the name "SRR11498039.bam".
+
+```{r}
+geno(header(srr_vcf))
+```
+
+```{r}
+info(header(srr_vcf))
+```
+
+```{r}
+info(srr_vcf)
+```
+
+VCF file columns CHROM, POS, and ID are represented by Granges, and their information can be found with rowRanges(vcf):
+
+```{r}
+rowRanges(srr_vcf)
+```
+
+### 4. Genomic positions
+
+To find information from the CHROM, POS, and ID fields of the VCF file, examine rowRanges:
+
+```{r}
+head(rowRanges(srr_vcf), 3)
+
+```
+
+Find the reference and alternative alele:
+
+```{r}
+#reference alele from position 1 to 5
+ref(srr_vcf)[1:5]
+```
+
+```{r}
+#alternative alele from position 1 to 5:
+alt(srr_vcf)[1:5]
+```
+
+ALT is stored as DNAStringSetList and allows for multiple alternate aleles per variant
+
+
+### 5. Find specific data
+
+Genetype information obtained from the FORMAT fields is parsed into the geno slot. Each sample has distinct data and may have multiple values within it. As a result, the data is structured into matrices or arrays with rows representing variants and columns representing samples. A multidimensional array indicates multiple values per sample.
+
+```{r}
+geno (srr_vcf)
+sapply (geno(srr_vcf), class)
+```
+
+In our vcf sample all variables are matrices.
+
+Now we'll take a look at the List of Phred-scaled genotype likelihoods (PL) variable as an example:
+
+```{r}
+#header provides the variable definition and type
+geno(header(srr_vcf))['PL',]
+
+```
+
+header() provides the variable definition and type for the variable.
+
+```{r}
+PL<- geno(srr_vcf)$PL
+
+dim(PL)
+```
+
+We can see the dimention of the RO variable is a 550924x1 so it is unidimentional because we have only one sample.
+
+```{r}
+PL[1:3,]
+```
+
+If we had more samples we could compute a five number summary of the minimum, lower-hinge (first quartile), median, upper-hinge (third quartile) and maximum using fivenum():
+
+```{r eval=FALSE}
+fivenum(PL)
+```
+
+We could also check the distribution of zero values:
+
+```{r eval=FALSE}
+length(which(PL==0))/length(PL)
+```
+
+And the distribution of non-zero values:
+
+```{r eval=FALSE}
+hist(PL[PL != 0], main='RO non-zero values', xlab='RO')
+
+```
+
+The info data are unique to the variant and the same across samples. All info variables are represented in a single DataFrame
+
+```{r}
+info(srr_vcf)[1:4, 1:5]
+```
+
+### 6. Compare quality measures between novel (not in dbSNP) and known (in dbSNP) variants and the variant type present in the file.
+
+Variants with membership in dbSNP can be identified by using the appropriate SNPlocs package:
+
+```{r}
+BiocManager::install("SNPlocs.Hsapiens.dbSNP151.GRCh38")
+library("SNPlocs.Hsapiens.dbSNP151.GRCh38")
+library("BSgenome")
+```
+
+Find which SNPlocs are installed:
+
+```{r}
+installed.SNPs()
+```
+
+Find available SNPlocs:
+
+```{r}
+available.SNPs()
+```
+
+```{r}
+snps <- SNPlocs.Hsapiens.dbSNP151.GRCh38
+snpcount(snps)
+```
+
+
+
+When working with large VCF files it may be more efficient to read in subsets of the data. This can be accomplished by selecting genomic coordinates (ranges) or by specific fields from the VCF file.
+
+
+
+More info on Variant Annotations: https://www.bioconductor.org/packages/devel/bioc/vignettes/VariantAnnotation/inst/doc/VariantAnnotation.pdf
+
+
